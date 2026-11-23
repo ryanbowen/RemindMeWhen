@@ -1,0 +1,6 @@
+package-as: RemindMeWhen
+
+ignore:
+  - tests
+  - media
+  - README.md

@@ -1,0 +1,41 @@
+## Interface: 16001
+## Title: RemindMeWhen
+## Notes: Shows reminders when conditions you set are met.
+## Version: 2.0.0
+## Author: ryanbowen
+## X-License: GPL-3.0
+## SavedVariables: RemindMeWhenDB
+## AllowLoadGameType: camelot
+## IconTexture: Interface\Icons\INV_Misc_PocketWatch_01
+## AddonCompartmentFunc: RemindMeWhen_OnAddonCompartmentClick
+
+Locale.lua
+Compat.lua
+Data.lua
+Resolver.lua
+Spells.lua
+Items.lua
+Instances.lua
+Tracker.lua
+Conditions.lua
+ConditionTypes.lua
+Tree.lua
+Load.lua
+Layout.lua
+Progress.lua
+Presets.lua
+Serialize.lua
+Versions.lua
+Merge.lua
+Widgets.lua
+Display.lua
+Actions.lua
+Options.lua
+OptionsTree.lua
+OptionsEditor.lua
+OptionsConditions.lua
+OptionsVisuals.lua
+OptionsDisplay.lua
+OptionsLoad.lua
+OptionsIO.lua
+Core.lua
