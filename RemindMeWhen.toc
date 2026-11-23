@@ -4,6 +4,7 @@
 ## Version: 2.0.0
 ## Author: ryanbowen
 ## X-License: GPL-3.0
+## X-Curse-Project-ID: 1825552
 ## SavedVariables: RemindMeWhenDB
 ## AllowLoadGameType: camelot
 ## IconTexture: Interface\Icons\INV_Misc_PocketWatch_01
