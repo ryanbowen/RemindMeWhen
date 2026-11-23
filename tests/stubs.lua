@@ -26,6 +26,7 @@ local function newObject(kind, name)
 			Hide = function(self) self._shown = false; if self._scripts.OnHide then self._scripts.OnHide(self) end end,
 			SetShown = function(self, v) if v then self:Show() else self:Hide() end end,
 			IsShown = function(self) return self._shown end,
+			IsVisible = function(self) return self._shown end,
 			GetWidth = function(self) return self._width end,
 			GetHeight = function(self) return self._height or 100 end,
 			SetWidth = function(self, w) self._width = w end,
@@ -62,6 +63,10 @@ local function newObject(kind, name)
 			Stop = function(self) self._playing = false end,
 			GetFont = function() return "Fonts\\FRIZQT__.TTF", 14, "" end,
 			GetFrameLevel = function() return 1 end,
+			SetVerticalScroll = function(self, v) self._scroll = v end,
+			GetVerticalScroll = function(self) return self._scroll or 0 end,
+			GetName = function(self) return self._name end,
+			GetParent = function(self) return self._parent end,
 			RegisterEvent = function(self, e) self._events = self._events or {}; self._events[e] = true end,
 			RegisterUnitEvent = function(self, e) self._events = self._events or {}; self._events[e] = true end,
 		}
@@ -98,6 +103,12 @@ function StaticPopup_Show(name, text)
 end
 CURSOR = { 0, 0 }
 function GetCursorPosition() return CURSOR[1], CURSOR[2] end
+SHIFT = false
+function IsShiftKeyDown() return SHIFT end
+MOUSE_DOWN = {}
+function IsMouseButtonDown(button) return MOUSE_DOWN[button] or false end
+MOUSE_FOCUS = nil
+function GetMouseFoci() return { MOUSE_FOCUS } end
 SlashCmdList = {}
 SOUNDKIT = { RAID_WARNING = 8959, READY_CHECK = 8960 }
 PLAYED = {}

@@ -26,7 +26,7 @@ Install from CurseForge, or extract the `RemindMeWhen` folder from a release zip
 | Command | Action |
 |---|---|
 | `/rmw` | Open the editor |
-| `/rmw lock`, `/rmw unlock` | Lock the display, or unlock it to drag reminders and groups |
+| `/rmw lock`, `/rmw unlock` | Lock the display, or start move mode to drag reminders and groups. You can also click Move in the editor. |
 | `/rmw test` | Show all enabled reminders for a few seconds |
 | `/rmw reset` | Move top-level reminders and groups back to the middle of the screen |
 | `/rmw unsnooze` | Show all snoozed reminders again |

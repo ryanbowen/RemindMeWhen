@@ -86,7 +86,7 @@ end
 local function minLeftParam()
 	return {
 		key = "minLeft", kind = "number", label = L["Min. seconds left"], hint = L["secs"], default = 0, width = 40,
-		help = L["Only counts while more than this many seconds remain, so the reminder can fire shortly before it runs out. 0 = any time left."],
+		help = L["Only counts while more than this many seconds remain, so the reminder can show before it runs out. 0 = any time left."],
 	}
 end
 
@@ -351,7 +351,7 @@ define("instance", {
 		{ key = "kind", kind = "choice", label = L["Instance type"], default = "any", width = 90, choices = INSTANCE_CHOICES },
 		{
 			key = "names", kind = "text", resolver = "Instances", label = L["Instances"], hint = L["any, or names and IDs"], default = "", width = 150,
-			help = L["Optional. Dungeon, raid or battleground names (any part of the name) or instance IDs, separated by commas. Use + inside an instance to add it with its ID. Empty = any instance of the chosen type."],
+			help = L["Optional. Instance names (or part of a name) or IDs, comma separated. Use + inside an instance to add it. Empty = any instance of the chosen type."],
 		},
 	},
 	eval = function(c)

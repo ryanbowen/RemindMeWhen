@@ -114,7 +114,7 @@ function Options:CreateEditor()
 	self.layoutDropdown:SetPoint("TOPLEFT", 74, -3)
 	W.Tooltip(self.layoutDropdown, L["Type"], L["Dynamic groups arrange their contents in a row or grid. Static groups let you place each one yourself."])
 	self.groupIconBox, self.groupIconPreview = self:IconField(groupHeader,
-		L["Shown in the list. Reminders in this group without an icon of their own use it too. Leave empty for the default group icon. Accepts a spell name or ID, item:ID, or a texture path such as Interface\\Icons\\INV_Misc_Bag_10."])
+		L["Shown in the list and used by reminders in this group that have no icon. Leave empty for the default. Accepts a spell name or ID, item:ID, or a texture path such as Interface\\Icons\\INV_Misc_Bag_10."])
 	self.groupSummary = W.Label(groupHeader, "", "GameFontDisableSmall")
 	self.groupSummary:SetPoint("LEFT", self.groupIconPreview, "RIGHT", 14, 0)
 
@@ -149,7 +149,7 @@ function Options:CreateReminderHeader(content)
 	W.Tooltip(self.textBox, L["Text"], TEXT_HELP)
 
 	self.iconBox, self.iconPreview = self:IconField(content,
-		L["Leave empty to take the icon from the conditions or the click action, then from its group. Accepts a spell name or ID, item:ID, or a texture path such as Interface\\Icons\\Ability_Poisons."])
+		L["Leave empty to use the icon from the conditions, the click action or the group. Accepts a spell name or ID, item:ID, or a texture path such as Interface\\Icons\\Ability_Poisons."])
 end
 
 function Options:IconField(content, help)

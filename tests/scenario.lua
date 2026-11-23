@@ -508,6 +508,17 @@ res = Layout.Dynamic({ { w = 40, h = 40 }, { w = 100, h = 40 } }, { grow = "DOWN
 check(res.anchor == "TOPLEFT" and centersAre(res, { { 20, -20 }, { 50, -60 } }), "left aligned column")
 res = Layout.Dynamic({ { w = 40, h = 40 }, { w = 100, h = 40 } }, { grow = "DOWN", spacing = 0, align = "RIGHT" })
 check(res.anchor == "TOPRIGHT" and centersAre(res, { { -20, -20 }, { -50, -60 } }), "right aligned column")
+local tallRow = { { w = 40, h = 40 }, { w = 40, h = 100 } }
+res = Layout.Dynamic(tallRow, { grow = "RIGHT", spacing = 0, align = "TOP" })
+check(res.anchor == "TOPLEFT" and centersAre(res, { { 20, -20 }, { 60, -50 } }), "top aligned row")
+res = Layout.Dynamic(tallRow, { grow = "RIGHT", spacing = 0, align = "BOTTOM" })
+check(res.anchor == "BOTTOMLEFT" and centersAre(res, { { 20, 20 }, { 60, 50 } }), "bottom aligned row")
+res = Layout.Dynamic(tallRow, { grow = "RIGHT", spacing = 0, align = "LEFT" })
+check(res.anchor == "LEFT" and centersAre(res, { { 20, 0 }, { 60, 0 } }), "a column align on a row centers it")
+local shift, line = Layout.Snap({ 95, 115, 135 }, { 0, 500, 1000 }, 8)
+check(shift == 0 and line == nil, "no snap when every line is far")
+shift, line = Layout.Snap({ 494, 514, 534 }, { 0, 500, 1000 }, 8)
+check(shift == 6 and line == 500, "the nearest edge snaps to the line")
 local w, h, ix, iy = Layout.Box(40, 50, 16, true, "RIGHT")
 check(w == 98 and h == 40 and ix == -29 and iy == 0, "text right: icon left of the box center")
 w, h, ix, iy = Layout.Box(40, 50, 16, true, "TOP")
@@ -849,6 +860,176 @@ ns.db.display.locked = true
 step(0)
 check(not ns.Display:IsEditMode(), "locked again")
 
+-- Anchor points and targets
+do
+	local ar = Core:AddReminder({ name = "Anchored", text = "", conditions = { { type = "combat", negate = true } } })
+	ar.visual.showText = false
+	ar.point, ar.relPoint, ar.x, ar.y = "LEFT", "TOPRIGHT", -10, -5
+	step(0)
+	local item = ns.Display.items[ar.id]
+	local p = item._points[1]
+	check(p[1] == "LEFT" and p[2] == UIParent and p[3] == "TOPRIGHT" and p[4] == -10 and p[5] == -5, "a reminder anchors its point to a point of the screen")
+	local target = CreateFrame("Frame", "RMWTestTarget")
+	ar.anchorTo, ar.anchorFrame = "FRAME", "RMWTestTarget"
+	step(0)
+	check(item._points[1][2] == target and item._points[1][3] == "TOPRIGHT", "a reminder anchors to a named frame")
+	target:Hide()
+	step(0)
+	check(item._points[1][2] == UIParent, "a hidden named frame falls back to the screen")
+	target:Show()
+	ar.anchorFrame = "NoSuchFrame"
+	step(0)
+	check(item._points[1][2] == UIParent, "a missing named frame falls back to the screen")
+	ar.anchorFrame = ""
+	item._rect = { 900, 700, 40, 40 }
+	ns.Display:SavePosition(ar.id, item)
+	check(ar.x == -100 and ar.y == -80, "the saved offset runs from the target point to the anchor point: " .. ar.x .. "," .. ar.y)
+	ar.point, ar.relPoint, ar.x, ar.y = "CENTER", "CENTER", 0, 0
+	ns.db.display.locked = false
+	step(0)
+	item._rect = { 470, 380, 40, 40 }
+	CURSOR[1], CURSOR[2] = 490, 400
+	item._scripts.OnDragStart(item)
+	CURSOR[1], CURSOR[2] = 493, 402
+	ns.Drag:Update()
+	local q = item._points[#item._points]
+	check(q[1] == "BOTTOMLEFT" and q[2] == UIParent and near(q[4], 480) and near(q[5], 380), "dragging snaps the center to the screen's center lines")
+	check(ns.Drag.guides.vertical._shown and ns.Drag.guides.horizontal._shown, "guide lines show while snapped")
+	SHIFT = true
+	ns.Drag:Update()
+	q = item._points[#item._points]
+	check(near(q[4], 473) and near(q[5], 382) and not ns.Drag.guides.vertical._shown, "holding Shift turns snapping off")
+	SHIFT = false
+	item._scripts.OnDragStop(item)
+	check(not ns.Display.dragging and not ns.Drag.guides.vertical._shown, "dropping hides the guides")
+	ns.db.display.locked = true
+	Core:DeleteNode(ar.id)
+	step(0)
+end
+
+-- Anchoring to reminders, groups and the mouse
+do
+	local function plain(name)
+		local r = Core:AddReminder({ name = name, text = "", conditions = { { type = "combat", negate = true } } })
+		r.visual.showText = false
+		return r
+	end
+	local base, follower = plain("Base"), plain("Follower")
+	check(ns.Versions.IsUID(base.uid), "new reminders get an export ID right away")
+	follower.anchorTo, follower.anchorNode, follower.point, follower.relPoint = "NODE", base.uid, "TOP", "BOTTOM"
+	follower.x, follower.y = 0, -4
+	step(0)
+	local baseFrame, followFrame = ns.Display.items[base.id], ns.Display.items[follower.id]
+	local p = followFrame._points[1]
+	check(p[1] == "TOP" and p[2] == baseFrame and p[3] == "BOTTOM" and p[5] == -4, "a reminder anchors to another reminder")
+	check(ns.Anchors.CanAnchor(follower, base) and not ns.Anchors.CanAnchor(base, follower), "anchors cannot form a loop")
+	base.anchorTo, base.anchorNode = "NODE", follower.uid
+	check(ns.Anchors.Resolve(base) == nil, "a stored loop is ignored")
+	base.anchorTo, base.anchorNode = "SCREEN", ""
+	local order = ns.Anchors.Order({ follower.id, base.id })
+	check(order[1] == base.id and order[2] == follower.id, "a target is placed before what is anchored to it")
+	base.conditions = { { type = "combat" } }
+	step(0)
+	check(followFrame._points[1][2] == UIParent, "a hidden target falls back to the screen")
+	base.conditions = { { type = "combat", negate = true } }
+
+	follower.anchorTo = "MOUSE"
+	CURSOR[1], CURSOR[2] = 300, 200
+	step(0)
+	local cursor = ns.Display.cursor
+	check(followFrame._points[1][2] == cursor and cursor._shown, "a reminder can follow the mouse")
+	CURSOR[1], CURSOR[2] = 310, 220
+	cursor._scripts.OnUpdate(cursor)
+	local c = cursor._points[#cursor._points]
+	check(c[4] == 310 and c[5] == 220, "the mouse point moves with the cursor")
+	ns.db.display.locked = false
+	step(0)
+	followFrame._scripts.OnDragStart(followFrame)
+	check(not ns.Display.dragging, "a reminder that follows the mouse cannot be dragged")
+	Core:DeleteNode(follower.id)
+	step(0)
+	check(not cursor._shown, "the mouse point stops when nothing follows it")
+
+	local snap = ns.db.display.snap
+	local panel = ns.PositionPanel
+	check(not (panel.frame and panel.frame._shown), "the position panel does not show just because positions are unlocked")
+	ns.db.display.locked = true
+	SlashCmdList.REMINDMEWHEN("unlock")
+	step(0)
+	check(ns.Display.moving and panel.frame._shown and panel.done._text == "Done", "/rmw unlock starts move mode and shows the position panel")
+	snap.edges, snap.grid = false, false
+	panel.checks.others._checked = true
+	panel.checks.others._scripts.OnClick(panel.checks.others)
+	local mover = plain("Mover")
+	step(0)
+	baseFrame._rect = { 100, 100, 40, 40 }
+	local function has(list, v)
+		for _, value in ipairs(list) do if near(value, v) then return true end end
+		return false
+	end
+	local xs, ys = ns.Drag.Lines(mover.id, 1)
+	check(snap.others and has(xs, 100) and has(xs, 120) and has(xs, 140) and has(ys, 120), "dragging snaps to the edges and centers of other reminders")
+	xs = ns.Drag.Lines(base.id, 1)
+	check(not has(xs, 120), "a frame does not snap to itself")
+
+	snap.others = false
+	panel.checks.grid._checked = true
+	panel.checks.grid._scripts.OnClick(panel.checks.grid)
+	panel.sizeBox._text = "500"
+	panel.sizeBox._scripts.OnEditFocusLost(panel.sizeBox)
+	check(snap.grid and snap.gridSize == Core.GRID_MAX, "grid size is limited")
+	panel.sizeBox._text = "10"
+	panel.sizeBox._scripts.OnEditFocusLost(panel.sizeBox)
+	step(0)
+	check(snap.gridSize == 10 and ns.Drag.grid._shown, "the grid shows while grid snapping is on")
+	local moverFrame = ns.Display.items[mover.id]
+	moverFrame._rect = { 502, 397, 40, 40 }
+	CURSOR[1], CURSOR[2] = 510, 400
+	moverFrame._scripts.OnDragStart(moverFrame)
+	CURSOR[1], CURSOR[2] = 511, 401
+	ns.Drag:Update()
+	local q = moverFrame._points[#moverFrame._points]
+	check(near(q[4], 500) and near(q[5], 400), "dragging snaps to the grid: " .. q[4] .. "," .. q[5])
+	moverFrame._scripts.OnDragStop(moverFrame)
+
+	SlashCmdList.REMINDMEWHEN("lock")
+	step(0)
+	check(not ns.Display:IsEditMode() and not panel.frame._shown and not ns.Drag.grid._shown, "/rmw lock hides the panel and the grid")
+	snap.edges, snap.others, snap.grid = true, true, false
+	Core:DeleteNode(mover.id)
+	Core:DeleteNode(base.id)
+	step(0)
+end
+
+-- Frame picker
+do
+	local picked
+	local parentFrame = CreateFrame("Frame", "RMWPickParent")
+	local child = CreateFrame("Frame")
+	child._parent = parentFrame
+	MOUSE_DOWN.LeftButton = true
+	ns.Widgets.PickFrame(function(name) picked = name end)
+	local picker = ns.Widgets.picker
+	MOUSE_FOCUS = child
+	picker._scripts.OnUpdate(picker)
+	check(picker._scripts.OnUpdate and not picked, "the picker waits for the opening click to be released")
+	MOUSE_DOWN.LeftButton = false
+	picker._scripts.OnUpdate(picker)
+	check(picker.label._text == "RMWPickParent", "the picker highlights the nearest named frame")
+	MOUSE_DOWN.LeftButton = true
+	picker._scripts.OnUpdate(picker)
+	check(picked == "RMWPickParent" and not picker._shown, "left-click picks the frame")
+	MOUSE_DOWN.LeftButton = false
+	picked = nil
+	ns.Widgets.PickFrame(function(name) picked = name end)
+	picker._scripts.OnUpdate(picker)
+	MOUSE_DOWN.RightButton = true
+	picker._scripts.OnUpdate(picker)
+	check(not picked and not picker._shown, "right-click cancels the picker")
+	MOUSE_DOWN.RightButton = false
+	MOUSE_FOCUS = nil
+end
+
 -- Remove and duplicate
 local dup = Core:DuplicateNode(sg.id)
 check(dup and dup.id ~= sg.id and #dup.children == 2 and dup.children[1] ~= sg.children[1] and dup.name == "Free (copy)", "duplicating a group copies its contents with new IDs")
@@ -997,6 +1178,17 @@ do
 	local dupPack = Core:DuplicateNode(pack.id)
 	check(dupPack.uid ~= pack.uid and Tree:Get(dupPack.children[1]).uid ~= a.uid and uidsUnique(), "duplicates get new permanent IDs")
 
+	local lead = Core:AddReminder({ name = "Lead", conditions = {} })
+	local trail = Core:AddReminder({ name = "Trail", conditions = {} })
+	trail.anchorTo, trail.anchorNode, trail.point, trail.relPoint = "NODE", lead.uid, "TOP", "BOTTOM"
+	local trip = reimport({ lead.id, trail.id })
+	check(trip[2].anchorTo == "NODE" and trip[2].anchorNode == lead.uid and trip[2].point == "TOP" and trip[2].relPoint == "BOTTOM", "anchor settings survive export and import")
+	local copies = M.Apply(M.Plan(trip), { asCopy = true, place = place })
+	check(copies[1].uid ~= lead.uid and copies[2].anchorNode == copies[1].uid, "copies imported together stay anchored to each other")
+	local single = M.Apply(M.Plan(reimport({ trail.id })), { asCopy = true, place = place })[1]
+	check(single.anchorNode == lead.uid, "a copy keeps its anchor to a reminder outside the copy")
+	for _, node in ipairs({ lead, trail, copies[1], copies[2], single }) do Core:DeleteNode(node.id) end
+
 	local foreign = reimport({ pack.id })[1]
 	foreign.name = "Unrelated"
 	foreign.uid = nil
@@ -1052,7 +1244,54 @@ O.growDropdown._scripts.OnClick(O.growDropdown)
 for _, b in ipairs(RemindMeWhenMenu.buttons) do
 	if b._shown and b.text._text == "Right" then b._scripts.OnClick(b) break end
 end
-check(dg.grow == "RIGHT" and not O.alignDropdown._shown, "grow choice saved, and align only shows for columns")
+check(dg.grow == "RIGHT" and O.alignDropdown._shown and O.alignDropdown.choices[1].value == "TOP", "grow choice saved, and rows offer top, center and bottom")
+O.alignDropdown._scripts.OnClick(O.alignDropdown)
+for _, b in ipairs(RemindMeWhenMenu.buttons) do
+	if b._shown and b.text._text == "Top" then b._scripts.OnClick(b) break end
+end
+check(dg.align == "TOP" and O.groupPosition.pointText._text:find("Top left", 1, true), "row align saved and the group's point follows it")
+dg.align = "CENTER"
+
+-- Anchor settings in the editor
+do
+	local function pick(dropdown, label)
+		dropdown._scripts.OnClick(dropdown)
+		for _, b in ipairs(RemindMeWhenMenu.buttons) do
+			if b._shown and b.text._text == label then b._scripts.OnClick(b) return true end
+		end
+		return false
+	end
+	local a = Core:AddReminder({ name = "Anchor A", conditions = { { type = "combat", negate = true } } })
+	local b = Core:AddReminder({ name = "Anchor B", conditions = { { type = "combat", negate = true } } })
+	O:Select(b.id)
+	O:ShowTab("display")
+	local pos = O.nodePosition
+	check(pos.anchorTo._shown and pos.point._shown and pos.relPoint._shown and not pos.frameBox._shown and not pos.nodeDropdown._shown, "a top-level reminder shows anchor settings")
+	check(pick(pos.anchorTo, "Reminder or group") and b.anchorTo == "NODE" and pos.nodeDropdown._shown, "anchor to a reminder or group")
+	local offered = {}
+	for _, choice in ipairs(pos.nodeDropdown.choices()) do offered[choice.value] = true end
+	check(offered[a.uid] and not offered[b.uid], "the target list leaves out the reminder itself")
+	check(pick(pos.nodeDropdown, "Anchor A") and b.anchorNode == a.uid, "target chosen")
+	O:Select(a.id)
+	offered = {}
+	for _, choice in ipairs(pos.nodeDropdown.choices()) do offered[choice.value] = true end
+	check(not offered[b.uid], "the target list leaves out anything that would form a loop")
+	O:Select(b.id)
+	check(pick(pos.point, "Bottom left") and b.point == "BOTTOMLEFT", "point chosen")
+	check(pick(pos.relPoint, "Top right") and b.relPoint == "TOPRIGHT", "relative point chosen")
+	check(pick(pos.anchorTo, "Frame") and pos.frameBox._shown and pos.pick._shown, "anchor to a frame shows the name box and Pick")
+	pos.frameBox._text = "  PlayerFrame "
+	pos.frameBox._scripts.OnEditFocusLost(pos.frameBox)
+	check(b.anchorFrame == "PlayerFrame", "frame name saved, trimmed")
+	check(pick(pos.anchorTo, "Mouse") and b.x == 24 and b.y == -24 and not pos.relPoint._shown, "following the mouse starts just off the cursor")
+	O:Select(free.id)
+	check(pos.x.slider._shown and not pos.anchorTo._shown, "reminders in a static group have no anchor settings")
+	O:Select(dg.id)
+	O:ShowTab("layout")
+	check(O.groupPosition.anchorTo._shown and O.groupPosition.pointText._shown and not O.groupPosition.point._shown, "a dynamic group shows its point as text")
+	Core:DeleteNode(a.id)
+	Core:DeleteNode(b.id)
+end
 O.spacingBox._text = "12"
 O.spacingBox._scripts.OnEditFocusLost(O.spacingBox)
 check(dg.spacing == 12, "spacing saved")
@@ -1062,6 +1301,12 @@ O.displayChecks.editWhileOptions._checked = false
 O.displayChecks.editWhileOptions._scripts.OnClick(O.displayChecks.editWhileOptions)
 check(ns.db.display.editWhileOptions == false and not ns.Display:IsEditMode(), "edit while options can be switched off")
 ns.db.display.editWhileOptions = true
+check(ns.Display:IsEditMode(), "edit mode is on while the editor is open")
+SlashCmdList.REMINDMEWHEN("lock")
+check(O:IsOpen() and not ns.Display:IsEditMode(), "/rmw lock ends edit mode even with the editor open")
+O.frame:Hide()
+O:Open()
+check(ns.Display:IsEditMode(), "opening the editor again turns edit mode back on")
 local gsize
 for _, row in ipairs(O.globalVisuals.rows) do if row.info.key == "iconSize" then gsize = row end end
 gsize.control._text = "36"
@@ -1208,6 +1453,18 @@ O:ToggleCollapsed(main.id)
 check(#O:VisibleNodes() == rowsBefore - #main.children and ns.db.collapsed[main.id], "collapsing hides a group's contents")
 O:ToggleCollapsed(main.id)
 check(#O:VisibleNodes() == rowsBefore, "expanding shows them again")
+O:RefreshList()
+local function shownRows()
+	local n = 0
+	for _, tr in ipairs(O.treeRows) do if tr._shown then n = n + 1 end end
+	return n
+end
+local mainRow
+for _, tr in ipairs(O.treeRows) do if tr._shown and tr.nodeID == main.id then mainRow = tr end end
+mainRow.expand._scripts.OnClick(mainRow.expand, "LeftButton")
+check(shownRows() == rowsBefore - #main.children, "clicking minus collapses the group rows")
+mainRow.expand._scripts.OnClick(mainRow.expand, "LeftButton")
+check(shownRows() == rowsBefore, "clicking plus expands them")
 local a, b = main.children[1], main.children[2]
 check(O:DropTarget(a, b, 0.9) == main.id and select(2, O:DropTarget(a, b, 0.9)) == 3, "drop below a sibling")
 check(O:Drop(a, b, 0.9) and main.children[1] == b and main.children[2] == a, "drag reorder within a group")

@@ -81,7 +81,7 @@ function Options:CreateImportReview(dialog)
 
 	local keepLabel = W.Label(review, L["Keep my:"], "GameFontNormal")
 	keepLabel:SetPoint("TOPLEFT", 0, -170)
-	local keepHelp = W.Label(review, L["Checked parts of updated reminders and groups stay as you have them."], "GameFontDisableSmall")
+	local keepHelp = W.Label(review, L["Checked parts stay as you have them."], "GameFontDisableSmall")
 	keepHelp:SetPoint("LEFT", keepLabel, "RIGHT", 10, 0)
 	review.keepChecks = {}
 	for i, part in ipairs(ns.Merge.PARTS) do
@@ -186,7 +186,7 @@ function Options:ShowImport()
 	local dialog = self:CreateIODialog()
 	self:SetIOMode("import")
 	dialog.title:SetText(L["Import reminders"])
-	dialog.help:SetText(L["Paste an export string (Ctrl+V) and click Import. New things are added to the selected group (or next to the selected reminder). If some already exist, you can choose to update them or import copies."])
+	dialog.help:SetText(L["Paste an export string (Ctrl+V) and click Import. It is added to the selected group, or next to the selected reminder. If any of it already exists, you can update it or import copies."])
 	dialog.primary:SetText(L["Import"])
 	dialog.status:SetText("")
 	dialog.box:SetValue("")
@@ -213,7 +213,7 @@ function Options:DoImport()
 	review.remove, review.keep = {}, {}
 	for _, part in ipairs(ns.Merge.PARTS) do review.keep[part.key] = part.keepByDefault or nil end
 	dialog.title:SetText(L["Update or import a copy?"])
-	dialog.help:SetText(L["Some of this is already here. Update changes your existing reminders and groups to match the import. Import as copy adds everything as new."])
+	dialog.help:SetText(L["Some of this already exists. Update changes yours to match the import. Import as copy adds everything as new."])
 	dialog.primary:SetText(L["Update"])
 	local plan = self.importPlan
 	local status = string.format(L["%d to update, %d not in the new version."], plan.matches, #plan.leftovers)

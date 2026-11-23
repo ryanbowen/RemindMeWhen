@@ -1,5 +1,6 @@
 local _, ns = ...
-local Compat, Conditions, Data, Layout, Tree, L = ns.Compat, ns.Conditions, ns.Data, ns.Layout, ns.Tree, ns.L
+local Anchors, Compat, Conditions, Data, Layout, Tree, L =
+	ns.Anchors, ns.Compat, ns.Conditions, ns.Data, ns.Layout, ns.Tree, ns.L
 
 -- One frame per shown reminder (items) and per shown group (groups). Dynamic groups arrange their
 -- contents with Layout, and everything else sits at its own x/y from its parent's center.
@@ -59,9 +60,41 @@ end
 
 function Display:Create() end
 
+-- Locking also ends move mode, and the editor's edit mode until the editor is opened again.
 function Display:IsEditMode()
 	local d = ns.db.display
-	return not d.locked or (d.editWhileOptions and ns.Options:IsOpen()) or false
+	return self.moving or not d.locked or (d.editWhileOptions and ns.Options:IsOpen() and not self.editEnded) or false
+end
+
+function Display:SetLocked(locked)
+	ns.db.display.locked = locked
+	self.editEnded = locked or nil
+	if locked then self.moving = nil end
+	ns.Core:RequestUpdate()
+end
+
+-- Move mode hides the editor and lets everything be dragged until it ends. It is not saved.
+function Display:StartMoving()
+	local Options = ns.Options
+	self.reopenEditor = Options:IsOpen()
+	self.moving = true
+	if self.reopenEditor then Options.frame:Hide() end
+	ns.Core:RequestUpdate()
+end
+
+-- reopen: open the editor again when move mode started from it.
+function Display:StopMoving(reopen)
+	if not self.moving then return end
+	self.moving = nil
+	ns.PositionPanel.requested = nil
+	if reopen and self.reopenEditor then ns.Options:Open() else ns.Core:RequestUpdate() end
+end
+
+-- Opens the editor with the node selected. Right-clicking something that can be moved does this.
+function Display:Configure(id)
+	if not Tree:Get(id) then return end
+	ns.Options:Open()
+	ns.Options:Reveal(id)
 end
 
 function Display:ApplySettings()
@@ -72,8 +105,10 @@ function Display:ShowTooltip(owner, r)
 	GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
 	GameTooltip:AddLine(r.name, 1, 0.82, 0)
 	if self:IsEditMode() then
-		local mover = Tree:IsPositioned(r) and L["Drag to move it."] or L["Drag to move its group."]
+		local mover = Display.FollowsMouse(r) and L["Follows the mouse. Set its offset on the Display tab."]
+			or Tree:IsPositioned(r) and L["Drag to move it."] or L["Drag to move its group."]
 		GameTooltip:AddLine(mover, 1, 1, 1, true)
+		GameTooltip:AddLine(L["Right-click to configure it."], 1, 1, 1, true)
 		GameTooltip:Show()
 		return
 	end
@@ -92,60 +127,73 @@ function Display:OpenSnoozeMenu(owner, r)
 	ns.Widgets.OpenMenu(owner, SNOOZE_CHOICES, nil, function(how) ns.Core:Snooze(r, how) end)
 end
 
--- Frame that moves when this node's frame is dragged: anything a dynamic group lays out moves that
--- group (and the dynamic groups that lay it out in turn).
-local function moverFor(id)
-	local parent = Tree:ParentNode(id)
-	while parent and parent.layout == "dynamic" do
-		id = parent.id
-		parent = Tree:ParentNode(id)
+local function followCursor(frame)
+	local x, y = GetCursorPosition()
+	local scale = UIParent:GetEffectiveScale()
+	frame:ClearAllPoints()
+	frame:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x / scale, y / scale)
+end
+
+-- A point that follows the mouse for nodes anchored to it. It only moves while shown.
+function Display:Cursor()
+	local cursor = self.cursor
+	if not cursor then
+		cursor = CreateFrame("Frame", nil, UIParent)
+		cursor:SetSize(1, 1)
+		cursor:SetScript("OnUpdate", followCursor)
+		self.cursor = cursor
 	end
-	if Tree:IsGroup(Tree:Get(id)) then return id, Display.groups[id] end
-	return id, Display.items[id]
+	if not cursor:IsShown() then followCursor(cursor) end
+	cursor:Show()
+	return cursor
 end
 
-local function startDrag(frame)
-	if not (frame.nodeID and Display:IsEditMode()) then return end
-	local id, mover = moverFor(frame.nodeID)
-	if not mover then return end
-	Display.dragging = { id = id, frame = mover }
-	mover:StartMoving()
+-- Whether the top-level node holding node follows the mouse.
+local function followsMouse(node)
+	local root = Tree:Get(Anchors.Root(node.id))
+	return root ~= nil and root.anchorTo == "MOUSE"
+end
+Display.FollowsMouse = followsMouse
+
+-- The frame and point a positioned node's offset is measured from: the origin of its static group,
+-- or for a top-level node the screen, a named frame, another reminder or group, or the mouse.
+-- A target that is missing, hidden or not allowed falls back to the screen. During an update, ctx
+-- tells which frames are drawn this pass.
+function Display:AnchorTarget(node, ctx)
+	local parent = Tree:ParentNode(node.id)
+	if parent then return self.groups[parent.id] or UIParent, "CENTER" end
+	if node.anchorTo == "MOUSE" then
+		if ctx then ctx.followsMouse = true end
+		return self:Cursor(), "CENTER"
+	elseif node.anchorTo == "NODE" then
+		local target = Anchors.Resolve(node)
+		local frame = target and (Tree:IsGroup(target) and self.groups[target.id] or self.items[target.id])
+		local drawn = frame and (ctx and ctx.used[frame] or not ctx and frame:IsShown())
+		if drawn then return frame, node.relPoint end
+	elseif node.anchorTo == "FRAME" then
+		local named = node.anchorFrame ~= "" and _G[node.anchorFrame]
+		if type(named) == "table" and named.GetRect and named.IsVisible and named:IsVisible()
+			and not (named.IsForbidden and named:IsForbidden()) then
+			return named, node.relPoint
+		end
+	end
+	return UIParent, node.relPoint
 end
 
-local function stopDrag()
-	local drag = Display.dragging
-	if not drag then return end
-	Display.dragging = nil
-	drag.frame:StopMovingOrSizing()
-	Display:SavePosition(drag.id, drag.frame)
-end
-
-local function makeDraggable(frame)
-	frame:SetMovable(true)
-	frame:RegisterForDrag("LeftButton")
-	frame:SetScript("OnDragStart", startDrag)
-	frame:SetScript("OnDragStop", stopDrag)
-end
-
--- Stores where a dragged frame ended up, relative to its parent's center.
+-- Stores where a frame is as the offset of its anchor point from its target's point.
 function Display:SavePosition(id, frame)
 	local node = Tree:Get(id)
 	if not node then return end
-	local parent = Tree:ParentNode(id)
-	local parentFrame = parent and self.groups[parent.id] or UIParent
+	local target, relPoint = self:AnchorTarget(node)
 	local left, bottom, width, height = frame:GetRect()
-	local pLeft, pBottom, pWidth, pHeight = parentFrame:GetRect()
-	if not (left and pLeft) then return end
-	local px, py
-	if Tree:IsGroup(node) then
-		local ox, oy = Layout.PointOffset(frame.anchorPoint or "CENTER", width, height)
-		px, py = left + width / 2 + ox, bottom + height / 2 + oy
-	else
-		px, py = left + width / 2 + (frame.ix or 0), bottom + height / 2 + (frame.iy or 0)
-	end
-	local k = parentFrame:GetEffectiveScale() / frame:GetEffectiveScale()
-	node.x = math.floor(px - (pLeft + pWidth / 2) * k + 0.5)
-	node.y = math.floor(py - (pBottom + pHeight / 2) * k + 0.5)
+	local tLeft, tBottom, tWidth, tHeight = target:GetRect()
+	if not (left and tLeft) then return end
+	local point = Tree:IsGroup(node) and frame.anchorPoint or node.point
+	local ox, oy = Layout.PointOffset(point or "CENTER", width, height)
+	local rx, ry = Layout.PointOffset(relPoint, tWidth, tHeight)
+	local k = target:GetEffectiveScale() / frame:GetEffectiveScale()
+	node.x = math.floor(left + width / 2 + ox - (tLeft + tWidth / 2 + rx) * k + 0.5)
+	node.y = math.floor(bottom + height / 2 + oy - (tBottom + tHeight / 2 + ry) * k + 0.5)
 	frame.placedAt = nil
 	ns.Options:OnNodeMoved(id)
 	ns.Core:RequestUpdate()
@@ -229,13 +277,18 @@ function Display:CreateItem()
 	item.bar:SetScript("OnUpdate", drainBar)
 	item.bar:Hide()
 	item:SetScript("OnMouseUp", function(frame, button)
-		if button == "RightButton" then Display:OpenSnoozeMenu(frame, frame.reminder) end
+		if button ~= "RightButton" or not frame.reminder then return end
+		if Display:IsEditMode() then
+			Display:Configure(frame.reminder.id)
+		else
+			Display:OpenSnoozeMenu(frame, frame.reminder)
+		end
 	end)
 	item:SetScript("OnEnter", function(frame)
 		if frame.reminder then Display:ShowTooltip(frame, frame.reminder) end
 	end)
 	item:SetScript("OnLeave", function() GameTooltip:Hide() end)
-	makeDraggable(item)
+	ns.Drag.Attach(item)
 	return item
 end
 
@@ -250,10 +303,14 @@ function Display:CreateGroupFrame()
 		GameTooltip:SetOwner(f, "ANCHOR_RIGHT")
 		GameTooltip:AddLine(node.name, 1, 0.82, 0)
 		GameTooltip:AddLine(L["Drag to move this group."], 1, 1, 1, true)
+		GameTooltip:AddLine(L["Right-click to configure it."], 1, 1, 1, true)
 		GameTooltip:Show()
 	end)
 	frame:SetScript("OnLeave", function() GameTooltip:Hide() end)
-	makeDraggable(frame)
+	frame:SetScript("OnMouseUp", function(f, button)
+		if button == "RightButton" and Display:IsEditMode() then Display:Configure(f.nodeID) end
+	end)
+	ns.Drag.Attach(frame)
 	return frame
 end
 
@@ -502,14 +559,14 @@ local function attach(frame, parentFrame)
 	end
 end
 
--- Anchors point of frame to the center of parentFrame, unless it is being dragged.
-local function place(frame, point, parentFrame, x, y)
+-- Anchors point of frame to relPoint of target, unless it is being dragged.
+local function place(frame, point, target, relPoint, x, y)
 	if Display.dragging and Display.dragging.frame == frame then return end
-	local key = point .. ":" .. x .. ":" .. y
-	if frame.placedAt == key and frame.placedIn == parentFrame then return end
+	local key = point .. ":" .. relPoint .. ":" .. x .. ":" .. y
+	if frame.placedAt == key and frame.placedIn == target then return end
 	frame:ClearAllPoints()
-	frame:SetPoint(point, parentFrame, "CENTER", x, y)
-	frame.placedAt, frame.placedIn = key, parentFrame
+	frame:SetPoint(point, target, relPoint, x, y)
+	frame.placedAt, frame.placedIn = key, target
 end
 
 -- Whether a reminder or anything inside a group is showing this pass.
@@ -532,7 +589,7 @@ function Display:ShowItem(r, parentFrame, ctx)
 	local real = ctx.active[r.id]
 	item:SetAlpha(real and 1 or PREVIEW_ALPHA)
 	setEditLook(item, ctx.edit, 0.3, 0.8, 0.4)
-	item:EnableMouse(ctx.edit or ns.db.display.clickToDismiss and true or false)
+	item:EnableMouse((ctx.edit or ns.db.display.clickToDismiss) and not followsMouse(r) or false)
 	item:Show()
 	local flashing = item.flashUntil and item.flashUntil > GetTime()
 	if not flashing then item.flashUntil = nil end
@@ -589,7 +646,7 @@ function Display:ShowGroupFrame(g, parentFrame, ctx, scale)
 	frame.label:SetText(g.name)
 	frame.label:SetShown(ctx.edit)
 	setEditLook(frame, ctx.edit, 0.2, 0.55, 1)
-	frame:EnableMouse(ctx.edit)
+	frame:EnableMouse(ctx.edit and not followsMouse(g))
 	frame:Show()
 	return frame
 end
@@ -647,22 +704,27 @@ function Display:RenderDynamic(g, frame, ctx)
 end
 
 -- Shows nodes at their own positions in parentFrame. Returns the bounds of what was drawn, relative
--- to the parent's center in its units, or nil when nothing was.
+-- to the parent's center in its units, or nil when nothing was. Top-level nodes are drawn after the
+-- nodes they are anchored to.
 function Display:RenderList(list, parentFrame, ctx)
 	local bounds
+	if parentFrame == UIParent then list = Anchors.Order(list) end
 	for _, id in ipairs(list) do
 		local node = Tree:Get(id)
 		if node and isDrawn(node, ctx) then
 			local s = node.scale
+			local target, relPoint = self:AnchorTarget(node, ctx)
 			if Tree:IsGroup(node) then
 				local frame, w, h, point, px, py = self:RenderGroup(node, parentFrame, ctx, s)
-				place(frame, point, parentFrame, node.x, node.y)
+				place(frame, point, target, relPoint, node.x, node.y)
 				bounds = extend(bounds, (node.x - px) * s, (node.y - py) * s, w * s, h * s)
 			else
 				local item, w, h = self:ShowItem(node, parentFrame, ctx)
 				item:SetScale(s)
-				place(item, "CENTER", parentFrame, node.x - item.ix, node.y - item.iy)
-				bounds = extend(bounds, (node.x - item.ix) * s, (node.y - item.iy) * s, w * s, h * s)
+				item.anchorPoint = node.point
+				place(item, node.point, target, relPoint, node.x, node.y)
+				local ox, oy = Layout.PointOffset(node.point, w, h)
+				bounds = extend(bounds, (node.x - ox) * s, (node.y - oy) * s, w * s, h * s)
 			end
 		end
 	end
@@ -690,6 +752,8 @@ function Display:Update(active)
 			end
 		end
 	end
+	if self.cursor and not ctx.followsMouse then self.cursor:Hide() end
 	self.shown, self.visible = ctx.shown, ctx.visible
 	ns.Actions:Refresh(edit and {} or ctx.visible)
+	ns.PositionPanel:Refresh(edit)
 end

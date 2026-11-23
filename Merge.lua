@@ -15,7 +15,7 @@ Merge.PARTS = {
 	{ key = "action", label = L["Click action"], fields = { "action", "macroDisabled" } },
 	{ key = "look", label = L["Look"], fields = { "visual", "progress", "progressMax" } },
 	{ key = "layout", label = L["Group layout"], fields = { "grow", "spacing", "sort", "wrap", "align" } },
-	{ key = "position", label = L["Position"], fields = { "x", "y", "scale" }, keepByDefault = true },
+	{ key = "position", label = L["Position"], fields = { "x", "y", "scale", "point", "relPoint", "anchorFrame", "anchorTo", "anchorNode" }, keepByDefault = true },
 }
 
 local function nameKey(node)
@@ -167,12 +167,16 @@ function Merge.Apply(plan, options)
 		return node
 	end
 
+	if options.asCopy then
+		local incoming = {}
+		for i, entry in ipairs(plan.entries) do incoming[i] = entry.incoming end
+		ns.Versions.RenewUIDs(incoming)
+	end
 	local top = {}
 	for _, entry in ipairs(plan.entries) do
 		if entry.existing and not options.asCopy then
 			top[#top + 1] = applyEntry(entry)
 		else
-			if options.asCopy then ns.Versions.StripUIDs(entry.incoming) end
 			macros = macros + countMacros(entry.incoming)
 			local parentID, index = options.place(entry.incoming)
 			top[#top + 1] = addNew(entry.incoming, parentID, index)

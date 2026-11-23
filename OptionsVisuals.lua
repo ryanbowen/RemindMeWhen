@@ -20,11 +20,36 @@ local GROW_CHOICES = {
 	{ value = "VCENTER", label = L["Centered, vertical"] },
 	{ value = "HCENTER", label = L["Centered, horizontal"] },
 }
-local ALIGN_CHOICES = {
+local COLUMN_ALIGN_CHOICES = {
 	{ value = "LEFT", label = L["Left"] },
 	{ value = "CENTER", label = L["Center"] },
 	{ value = "RIGHT", label = L["Right"] },
 }
+local ROW_ALIGN_CHOICES = {
+	{ value = "TOP", label = L["Top"] },
+	{ value = "CENTER", label = L["Center"] },
+	{ value = "BOTTOM", label = L["Bottom"] },
+}
+local ANCHOR_CHOICES = {
+	{ value = "SCREEN", label = L["Screen"] },
+	{ value = "FRAME", label = L["Frame"] },
+	{ value = "NODE", label = L["Reminder or group"] },
+	{ value = "MOUSE", label = L["Mouse"] },
+}
+local POINT_CHOICES = {
+	{ value = "TOPLEFT", label = L["Top left"] },
+	{ value = "TOP", label = L["Top"] },
+	{ value = "TOPRIGHT", label = L["Top right"] },
+	{ value = "LEFT", label = L["Left"] },
+	{ value = "CENTER", label = L["Center"] },
+	{ value = "RIGHT", label = L["Right"] },
+	{ value = "BOTTOMLEFT", label = L["Bottom left"] },
+	{ value = "BOTTOM", label = L["Bottom"] },
+	{ value = "BOTTOMRIGHT", label = L["Bottom right"] },
+}
+local POINT_LABELS = {}
+for _, choice in ipairs(POINT_CHOICES) do POINT_LABELS[choice.value] = choice.label end
+local MOUSE_OFFSET = 24
 local SORT_CHOICES = {
 	{ value = "order", label = L["List order"] },
 	{ value = "timeLeft", label = L["Time left (soonest first)"] },
@@ -147,7 +172,7 @@ function Options:VisualControls(parent, x, y, global)
 				self:Changed()
 				controls:Refresh()
 			end)
-			W.Tooltip(row.inherit, L["Use group setting"], L["Checked: uses the setting of the group it is in (or Display settings at the top level). Uncheck to give it its own value."])
+			W.Tooltip(row.inherit, L["Use group setting"], L["Use the group's setting (or the Display settings at the top level). Uncheck to set your own."])
 		end
 		row.label = W.Label(parent, info.label, "GameFontNormalSmall")
 		if info.kind == "number" then
@@ -267,6 +292,72 @@ function Options:PositionControls(parent, x, y)
 	controls.help:SetPoint("RIGHT", parent, "RIGHT", -20, 0)
 	controls.help:SetWordWrap(true)
 
+	-- Anchor settings, for top-level reminders and groups only.
+	local anchorWidgets = {}
+	local function anchorWidget(widget)
+		anchorWidgets[#anchorWidgets + 1] = widget
+		return widget
+	end
+	local function setAnchor(key, value)
+		local node = Options:Current()
+		if not node then return end
+		node[key] = value
+		if key == "anchorTo" and value == "MOUSE" then
+			node.x, node.y = MOUSE_OFFSET, -MOUSE_OFFSET
+		else
+			local Display = ns.Display
+			local frame = Tree:IsGroup(node) and Display.groups[node.id] or Display.items[node.id]
+			if frame and frame:IsShown() then Display:SavePosition(node.id, frame) end
+		end
+		Options:Changed()
+		controls:Refresh()
+	end
+	local row3 = y - 124
+	anchorWidget(fieldLabel(parent, L["Anchor to"], x + 340, y - 80))
+	controls.anchorTo = anchorWidget(W.Dropdown(parent, 150, function(value) setAnchor("anchorTo", value) end))
+	controls.anchorTo:SetChoices(ANCHOR_CHOICES)
+	controls.anchorTo:SetPoint("TOPLEFT", x + 420, y - 75)
+	W.Tooltip(controls.anchorTo, L["Anchor to"], L["What its position is measured from. If the frame, reminder or group is not shown, the screen is used."])
+
+	controls.frameBox = anchorWidget(W.EditBox(parent, 130, function(text)
+		setAnchor("anchorFrame", text:match("^%s*(.-)%s*$"))
+	end))
+	controls.frameBox:SetPoint("TOPLEFT", x + 426, row3 + 4)
+	controls.frameBox:SetHint(L["frame name"])
+	W.Tooltip(controls.frameBox, L["Frame"], L["The global name of a frame, such as PlayerFrame. Use Pick to choose one on screen."])
+	controls.pick = anchorWidget(W.Button(parent, L["Pick"], 50, function()
+		W.PickFrame(function(name) setAnchor("anchorFrame", name) end)
+	end))
+	controls.pick:SetPoint("LEFT", controls.frameBox, "RIGHT", 6, 0)
+
+	controls.nodeDropdown = anchorWidget(W.Dropdown(parent, 190, function(value) setAnchor("anchorNode", value) end))
+	controls.nodeDropdown:SetSearchable(true)
+	controls.nodeDropdown:SetPoint("TOPLEFT", x + 420, row3 + 5)
+	controls.nodeDropdown:SetChoices(function()
+		local node, choices = Options:Current(), {}
+		if not node then return choices end
+		Tree:Walk(function(target, level)
+			if target.id ~= node.id and target.uid and ns.Anchors.CanAnchor(node, target) then
+				choices[#choices + 1] = { value = target.uid, label = string.rep("  ", level) .. (target.name or "") }
+			end
+		end)
+		return choices
+	end)
+
+	anchorWidget(fieldLabel(parent, L["Point"], x + 10, row3))
+	controls.point = anchorWidget(W.Dropdown(parent, 120, function(value) setAnchor("point", value) end))
+	controls.point:SetChoices(POINT_CHOICES)
+	controls.point:SetPoint("TOPLEFT", x + 50, row3 + 5)
+	W.Tooltip(controls.point, L["Point"], L["The point of this reminder that is placed at the offset."])
+	controls.pointText = anchorWidget(W.Label(parent, "", "GameFontHighlightSmall"))
+	controls.pointText:SetPoint("TOPLEFT", x + 56, row3)
+	controls.relLabel = anchorWidget(fieldLabel(parent, L["To its"], x + 186, row3))
+	controls.relPoint = anchorWidget(W.Dropdown(parent, 120, function(value) setAnchor("relPoint", value) end))
+	controls.relPoint:SetChoices(POINT_CHOICES)
+	controls.relPoint:SetPoint("TOPLEFT", x + 226, row3 + 5)
+	W.Tooltip(controls.relPoint, L["To its"], L["The point of the screen, frame, reminder or group that the offset starts from."])
+	controls.targetLabel = anchorWidget(fieldLabel(parent, "", x + 360, row3))
+
 	-- Sliders span the screen from the parent's middle, widened to include the current value.
 	local function setRange(entry, half, value)
 		local limit = math.max(half, math.ceil(math.abs(value)))
@@ -279,22 +370,48 @@ function Options:PositionControls(parent, x, y)
 		local node = Options:Current()
 		if not node then return end
 		local positioned = Tree:IsPositioned(node)
+		local topLevel = positioned and ns.Anchors.IsTopLevel(node)
 		for _, widget in ipairs(widgets) do widget:SetShown(positioned) end
+		for _, widget in ipairs(anchorWidgets) do widget:SetShown(topLevel) end
 		self.help:ClearAllPoints()
-		self.help:SetPoint("TOPLEFT", x, positioned and y - 116 or y - 20)
+		self.help:SetPoint("TOPLEFT", x + 60, positioned and y or y - 20)
 		self.help:SetPoint("RIGHT", parent, "RIGHT", -20, 0)
-		if positioned then
-			local scale = node.scale > 0 and node.scale or 1
-			setRange(self.x, math.ceil((UIParent:GetWidth() or 0) / 2 / scale), node.x)
-			setRange(self.y, math.ceil((UIParent:GetHeight() or 0) / 2 / scale), node.y)
-			self.scale.slider:SetSliderValue(node.scale)
-			self.scale.box:SetValue(node.scale)
-			local parentNode = Tree:ParentNode(node.id)
-			self.help:SetText(parentNode
-				and string.format(L["Offset from the middle of group \"%s\". You can also drag it on screen while the options are open."], parentNode.name)
-				or L["Offset from the middle of the screen. You can also drag it on screen while the options are open."])
-		else
+		if not positioned then
 			self.help:SetText(L["Its dynamic group sets its position. Reorder it in the list, or drag it on screen to move the whole group."])
+			return
+		end
+		local scale = node.scale > 0 and node.scale or 1
+		setRange(self.x, math.ceil((UIParent:GetWidth() or 0) / 2 / scale), node.x)
+		setRange(self.y, math.ceil((UIParent:GetHeight() or 0) / 2 / scale), node.y)
+		self.scale.slider:SetSliderValue(node.scale)
+		self.scale.box:SetValue(node.scale)
+		if not topLevel then
+			self.help:SetText(string.format(L["Offset from the middle of group \"%s\". You can also drag it on screen while the options are open."], Tree:ParentNode(node.id).name))
+			return
+		end
+		local kind = node.anchorTo
+		self.anchorTo:SetValue(kind)
+		self.help:SetText(kind == "MOUSE" and L["Offset from the mouse. It cannot be dragged while it follows the mouse."]
+			or L["Offset from its anchor. You can also drag it on screen while the options are open."])
+		self.frameBox:SetShown(kind == "FRAME")
+		self.pick:SetShown(kind == "FRAME")
+		self.frameBox:SetValue(node.anchorFrame)
+		self.nodeDropdown:SetShown(kind == "NODE")
+		self.nodeDropdown:SetValue(node.anchorNode)
+		self.targetLabel:SetShown(kind == "FRAME" or kind == "NODE")
+		self.targetLabel:SetText(kind == "FRAME" and L["Frame"] or L["Target"])
+		self.relLabel:SetShown(kind ~= "MOUSE")
+		self.relPoint:SetShown(kind ~= "MOUSE")
+		self.relPoint:SetValue(node.relPoint)
+		local group = Tree:IsGroup(node)
+		self.point:SetShown(not group)
+		self.pointText:SetShown(group)
+		if group then
+			self.pointText:SetText(node.layout == "dynamic"
+				and string.format(L["%s (set by Grow and Align)"], POINT_LABELS[ns.Layout.Dynamic({}, node).anchor])
+				or L["Center"])
+		else
+			self.point:SetValue(node.point)
 		end
 	end
 	return controls
@@ -335,7 +452,7 @@ function Options:ProgressControls(p)
 	end)
 	frame.mode:SetChoices(PROGRESS_CHOICES)
 	frame.mode:SetPoint("TOPLEFT", CONTROL_X, 5)
-	W.Tooltip(frame.mode, L["Bar shows"], L["Automatic: time left for aura and weapon enchant conditions, the count or percent for item, ammo, bag, durability, health, power and rested conditions, otherwise a full bar. Empty when the aura or enchant is missing."])
+	W.Tooltip(frame.mode, L["Bar shows"], L["Automatic shows time left for buffs and weapon enchants, and the count or percent for items, ammo, health and similar conditions. Other conditions show a full bar."])
 	frame.maxLabel = fieldLabel(frame, L["Full at"], 26, -ROW_H)
 	frame.max = W.EditBox(frame, 50, function(text)
 		local node = self:Current()
@@ -345,7 +462,7 @@ function Options:ProgressControls(p)
 		frame:Refresh(node)
 	end)
 	frame.max:SetPoint("TOPLEFT", CONTROL_X + 6, -ROW_H + 4)
-	W.Tooltip(frame.max, L["Full at"], L["The value of a full bar: seconds for time, or the count. 0 uses the duration, the condition's amount or 100 for percents. For weapon enchants 0 uses the longest time left seen since it was applied."])
+	W.Tooltip(frame.max, L["Full at"], L["The value of a full bar, in seconds or a count. 0 uses the duration, the condition's amount, or 100 for percents."])
 	frame.maxHelp = W.Label(frame, L["0 = automatic"], "GameFontDisableSmall")
 	frame.maxHelp:SetPoint("LEFT", frame.max, "RIGHT", 10, 0)
 
@@ -395,12 +512,12 @@ function Options:CreateLayoutTab(p)
 	self.growDropdown = W.Dropdown(dynamic, 180, function(value) setGroup("grow", value) end)
 	self.growDropdown:SetChoices(GROW_CHOICES)
 	self.growDropdown:SetPoint("TOPLEFT", 130, -5)
-	W.Tooltip(self.growDropdown, L["Grow"], L["Direction new reminders are added in. Centered keeps the row or column centered on the group's position."])
+	W.Tooltip(self.growDropdown, L["Grow"], L["Direction reminders are added in. Centered keeps them centered on the group."])
 
 	self.alignLabel = fieldLabel(dynamic, L["Align"], 4, -42)
 	self.alignDropdown = W.Dropdown(dynamic, 180, function(value) setGroup("align", value) end)
-	self.alignDropdown:SetChoices(ALIGN_CHOICES)
 	self.alignDropdown:SetPoint("TOPLEFT", 130, -37)
+	W.Tooltip(self.alignDropdown, L["Align"], L["How reminders of different sizes sit across the row or column. Center keeps each one centered, however long its text is."])
 
 	fieldLabel(dynamic, L["Spacing"], 4, -74)
 	self.spacingBox = W.EditBox(dynamic, 50, function(text)
@@ -422,7 +539,7 @@ function Options:CreateLayoutTab(p)
 	wrapHelp:SetPoint("LEFT", self.wrapBox, "RIGHT", 6, 0)
 
 	self.staticHelp = W.Label(p,
-		L["Each reminder and group in a static group keeps its own position relative to the group. Drag them on screen while the options are open, or set X and Y on their Display tab. Drag the group's handle to move everything at once."],
+		L["Drag each reminder or group to place it, or set X and Y on its Display tab. Drag the group's handle to move the whole group."],
 		"GameFontDisableSmall")
 	self.staticHelp:SetPoint("TOPLEFT", 4, -164)
 	self.staticHelp:SetPoint("RIGHT", p, "RIGHT", -20, 0)
@@ -436,10 +553,10 @@ function Options:RefreshLayoutTab(g)
 	self.staticHelp:SetShown(not dynamic)
 	if not dynamic then return end
 	self.growDropdown:SetValue(g.grow)
-	local vertical = g.grow == "DOWN" or g.grow == "UP" or g.grow == "VCENTER"
-	self.alignLabel:SetShown(vertical)
-	self.alignDropdown:SetShown(vertical)
-	self.alignDropdown:SetValue(g.align)
+	local vertical = ns.Layout.IsVertical(g.grow)
+	local valid = vertical and ns.Layout.COLUMN_ALIGN or ns.Layout.ROW_ALIGN
+	self.alignDropdown:SetChoices(vertical and COLUMN_ALIGN_CHOICES or ROW_ALIGN_CHOICES)
+	self.alignDropdown:SetValue(valid[g.align] and g.align or "CENTER")
 	self.spacingBox:SetValue(g.spacing)
 	self.sortDropdown:SetValue(g.sort)
 	self.wrapBox:SetValue(g.wrap)

@@ -1,7 +1,7 @@
 ## Interface: 16001
 ## Title: RemindMeWhen
 ## Notes: Shows reminders when conditions you set are met.
-## Version: 2.0.0
+## Version: 2.1.0
 ## Author: ryanbowen
 ## X-License: GPL-3.0
 ## X-Curse-Project-ID: 1825552
@@ -27,9 +27,12 @@ Progress.lua
 Presets.lua
 Serialize.lua
 Versions.lua
+Anchors.lua
 Merge.lua
 Widgets.lua
 Display.lua
+Drag.lua
+PositionPanel.lua
 Actions.lua
 Options.lua
 OptionsTree.lua

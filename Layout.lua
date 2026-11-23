@@ -7,6 +7,9 @@ ns.Layout = Layout
 
 Layout.TEXT_GAP = 8
 Layout.TEXT_GAP_VERTICAL = 4
+Layout.POINTS = { "TOPLEFT", "TOP", "TOPRIGHT", "LEFT", "CENTER", "RIGHT", "BOTTOMLEFT", "BOTTOM", "BOTTOMRIGHT" }
+Layout.IS_POINT = {}
+for _, point in ipairs(Layout.POINTS) do Layout.IS_POINT[point] = true end
 
 -- Offset of a named point from the center of a w x h box.
 function Layout.PointOffset(point, w, h)
@@ -45,14 +48,22 @@ local function chunk(list, size)
 	return lines
 end
 
+Layout.COLUMN_ALIGN = { LEFT = true, CENTER = true, RIGHT = true }
+Layout.ROW_ALIGN = { TOP = true, CENTER = true, BOTTOM = true }
+
+function Layout.IsVertical(grow)
+	return VERTICAL[grow] or false
+end
+
 -- Arranges boxes ({ w, h }) for a dynamic group.
 -- opts: grow (DOWN, UP, LEFT, RIGHT, HCENTER, VCENTER), spacing, wrap (items per line, 0 = none),
--- align (LEFT, CENTER or RIGHT, for vertical growth only).
+-- align (LEFT, CENTER or RIGHT for columns, TOP, CENTER or BOTTOM for rows).
 -- Returns { anchor = point name, width, height, centers = { { x, y } } } with centers relative to the anchor.
 function Layout.Dynamic(boxes, opts)
 	local grow, spacing, wrap = opts.grow or "DOWN", opts.spacing or 0, opts.wrap or 0
 	local vertical = VERTICAL[grow] or false
-	local align = vertical and (opts.align or "CENTER") or "CENTER"
+	local valid = vertical and Layout.COLUMN_ALIGN or Layout.ROW_ALIGN
+	local align = valid[opts.align] and opts.align or "CENTER"
 	local items = {}
 	for i, box in ipairs(boxes) do items[i] = { index = i, w = box.w, h = box.h } end
 	local lines = chunk(items, wrap)
@@ -90,7 +101,13 @@ function Layout.Dynamic(boxes, opts)
 				end
 			else
 				x = grow == "LEFT" and (longest - mid) or mid
-				y = lineStart + line.thickness / 2
+				if align == "TOP" then
+					y = lineStart + item.h / 2
+				elseif align == "BOTTOM" then
+					y = lineStart + line.thickness - item.h / 2
+				else
+					y = lineStart + line.thickness / 2
+				end
 			end
 			centers[item.index] = { x, y }
 		end
@@ -104,7 +121,7 @@ function Layout.Dynamic(boxes, opts)
 		hpart = (wrap > 0 or align == "LEFT") and "LEFT" or align == "RIGHT" and "RIGHT" or ""
 	else
 		hpart = grow == "RIGHT" and "LEFT" or grow == "LEFT" and "RIGHT" or ""
-		vpart = wrap > 0 and "TOP" or ""
+		vpart = (wrap > 0 or align == "TOP") and "TOP" or align == "BOTTOM" and "BOTTOM" or ""
 	end
 	local anchor = (vpart .. hpart) ~= "" and (vpart .. hpart) or "CENTER"
 	local ax, ay = Layout.PointOffset(anchor, width, height)
@@ -113,6 +130,33 @@ function Layout.Dynamic(boxes, opts)
 		c[1], c[2] = c[1] - ax, ay - c[2]
 	end
 	return { anchor = anchor, width = width, height = height, centers = centers }
+end
+
+-- How far to move a dragged box so its nearest edge or center lands on a line within threshold.
+-- edges and lines are coordinates on one axis. Returns the shift and the line, or 0 and nil.
+function Layout.Snap(edges, lines, threshold)
+	local best, line
+	for _, edge in ipairs(edges) do
+		for _, candidate in ipairs(lines) do
+			local shift = candidate - edge
+			if math.abs(shift) <= threshold and (not best or math.abs(shift) < math.abs(best)) then
+				best, line = shift, candidate
+			end
+		end
+	end
+	return best or 0, line
+end
+
+-- How far to move a dragged box so its nearest edge or center lands on a grid line at
+-- origin + n * step. Returns the shift and the line.
+function Layout.SnapGrid(edges, origin, step)
+	local best, line
+	for _, edge in ipairs(edges) do
+		local candidate = origin + math.floor((edge - origin) / step + 0.5) * step
+		local shift = candidate - edge
+		if not best or math.abs(shift) < math.abs(best) then best, line = shift, candidate end
+	end
+	return best or 0, line
 end
 
 function Layout.Sort(entries, mode)

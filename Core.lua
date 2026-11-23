@@ -15,7 +15,7 @@ local DISPLAY_DEFAULTS = {
 
 local GROW = { DOWN = true, UP = true, LEFT = true, RIGHT = true, HCENTER = true, VCENTER = true }
 local SORT = { order = true, timeLeft = true, name = true }
-local ALIGN = { LEFT = true, CENTER = true, RIGHT = true }
+local ALIGN = { LEFT = true, CENTER = true, RIGHT = true, TOP = true, BOTTOM = true }
 local TEXT_POS = { RIGHT = true, LEFT = true, TOP = true, BOTTOM = true, CENTER = true }
 local VISUAL_TYPES = {
 	iconSize = "number", showText = "boolean", fontSize = "number", textPos = "string",
@@ -93,6 +93,18 @@ local function sanitizeVisual(visual)
 end
 Core.SanitizeVisual = sanitizeVisual
 
+local SNAP_DEFAULTS = { grid = false, edges = true, others = true }
+Core.GRID_MIN, Core.GRID_MAX = 4, 200
+
+local function normalizeSnap(snap)
+	snap = type(snap) == "table" and snap or {}
+	for key, value in pairs(SNAP_DEFAULTS) do
+		if type(snap[key]) ~= "boolean" then snap[key] = value end
+	end
+	snap.gridSize = math.max(Core.GRID_MIN, math.min(Core.GRID_MAX, math.floor(tonumber(snap.gridSize) or 10)))
+	return snap
+end
+
 local function normalizeCommon(node, defaultName)
 	node.id = node.id or Core:NextID()
 	if not ns.Versions.IsUID(node.uid) then node.uid = ns.Versions.NewUID() end
@@ -107,6 +119,11 @@ local function normalizeCommon(node, defaultName)
 	for _, c in ipairs(node.conditions) do Conditions:Normalize(c) end
 	node.x = tonumber(node.x) or 0
 	node.y = tonumber(node.y) or 0
+	node.point = Layout.IS_POINT[node.point] and node.point or "CENTER"
+	node.relPoint = Layout.IS_POINT[node.relPoint] and node.relPoint or "CENTER"
+	node.anchorFrame = type(node.anchorFrame) == "string" and node.anchorFrame:match("^%s*(.-)%s*$") or ""
+	if not ns.Anchors.KINDS[node.anchorTo] then node.anchorTo = node.anchorFrame ~= "" and "FRAME" or "SCREEN" end
+	node.anchorNode = ns.Versions.IsUID(node.anchorNode) and node.anchorNode or ""
 	node.scale = math.max(0.3, math.min(3, tonumber(node.scale) or 1))
 	node.visual = sanitizeVisual(node.visual)
 end
@@ -255,6 +272,9 @@ function Core:InitDB()
 		if db.display[key] == nil then db.display[key] = value end
 	end
 	db.display.visual = sanitizeVisual(db.display.visual)
+	db.display.snap = normalizeSnap(db.display.snap)
+	local panel = db.display.panel
+	if not (type(panel) == "table" and tonumber(panel.x) and tonumber(panel.y)) then db.display.panel = nil end
 	db.learned = type(db.learned) == "table" and db.learned or {}
 	db.snoozes = type(db.snoozes) == "table" and db.snoozes or {}
 	db.collapsed = type(db.collapsed) == "table" and db.collapsed or {}
@@ -297,6 +317,7 @@ function Core:AddNode(node, parentID, index)
 	if not Tree:CanPlace(node, parentID) then parentID, index = Tree.ROOT, nil end
 	if (parentID or Tree.ROOT) == Tree.ROOT and node.x == 0 and node.y == 0 then node.y = NEW_ROOT_Y end
 	Tree:Insert(node, parentID, index)
+	ns.Versions:EnsureUIDs()
 	self:ConfigChanged()
 	return node
 end
@@ -332,7 +353,7 @@ end
 function Core:DuplicateNode(id)
 	local node = Tree:Get(id)
 	if not node then return nil end
-	local snapshot = ns.Versions.StripUIDs(Tree:Snapshot(id))
+	local snapshot = ns.Versions.RenewUIDs({ Tree:Snapshot(id) })[1]
 	snapshot.name = (node.name or "") .. L[" (copy)"]
 	local index = Tree:IndexOf(id)
 	return self:AddSnapshot(snapshot, Tree:Parent(id), index and index + 1)
@@ -724,10 +745,12 @@ local function handleSlash(message)
 	local rest = message:match("^%s*%S+%s+(.-)%s*$") or ""
 	if command == "" or command == "config" or command == "options" then
 		Options:Toggle()
-	elseif command == "lock" or command == "unlock" then
-		ns.db.display.locked = command == "lock"
-		Display:ApplySettings()
-		Core:Print(command == "lock" and L["Display locked."] or L["Display unlocked. Drag reminders and groups to move them."])
+	elseif command == "lock" then
+		Display:SetLocked(true)
+		Core:Print(L["Display locked."])
+	elseif command == "unlock" then
+		Display:StartMoving()
+		Core:Print(L["Drag reminders and groups to move them. Right-click one to configure it. Click Done or press Escape when you are finished."])
 	elseif command == "test" then
 		Core:Test()
 	elseif command == "reset" then
@@ -752,7 +775,7 @@ local function handleSlash(message)
 		Core:Print(L["/rmw unsnooze - show all snoozed reminders again"])
 		Core:Print(L["/rmw import | export - share reminders as text"])
 		Core:Print(L["/rmw debug - print map, instance and weapon enchant IDs and talent points"])
-		Core:Print(L["/rmw spell <name or ID> - show which spell a name or ID resolves to"])
+		Core:Print(L["/rmw spell <name or ID> - show which spell a name or ID matches"])
 	end
 end
 

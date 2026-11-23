@@ -106,6 +106,7 @@ end
 
 local COMMON_FIELDS = {
 	name = "string", enabled = "boolean", match = "string", x = "number", y = "number", scale = "number",
+	point = "string", relPoint = "string", anchorFrame = "string", anchorTo = "string", anchorNode = "string",
 	uid = "string", revision = "number",
 }
 local FIELDS = {

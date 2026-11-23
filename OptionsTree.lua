@@ -10,7 +10,10 @@ Options.treeRows = {}
 
 local function nodeLabel(node)
 	local name = node.name ~= "" and node.name or L["(unnamed)"]
-	if Tree:IsGroup(node) then name = name .. " |cff888888(" .. #node.children .. ")|r" end
+	if Tree:IsGroup(node) then
+		local count = #node.children > 0 and tostring(#node.children) or L["empty"]
+		name = name .. " |cff888888(" .. count .. ")|r"
+	end
 	if node.enabled and not ns.Core:IsOwnEnabledHere(node) then
 		local offHere = node.disabledFor and node.disabledFor[ns.Compat.CharKey()]
 		return "|cff888888" .. name .. (offHere and L[" (off on this character)"] or L[" (not loaded)"]) .. "|r"
@@ -58,6 +61,31 @@ function Options:Drop(dragID, targetID, fraction)
 	return ns.Core:MoveNode(dragID, parentID, index)
 end
 
+-- Selects the node, expands the groups above it and scrolls the list so it shows.
+function Options:Reveal(id)
+	local parentID = Tree:Parent(id)
+	while parentID and parentID ~= Tree.ROOT do
+		ns.db.collapsed[parentID] = nil
+		parentID = Tree:Parent(parentID)
+	end
+	self:Select(id)
+	local visible = self:VisibleNodes()
+	for i, entry in ipairs(visible) do
+		if entry.node.id == id then
+			local scroll = self.listScroll
+			local top, height = (i - 1) * ROW_H, scroll:GetHeight()
+			local offset = scroll:GetVerticalScroll() or 0
+			if top < offset then
+				offset = top
+			elseif top + ROW_H > offset + height then
+				offset = top + ROW_H - height
+			end
+			scroll:SetVerticalScroll(math.max(0, math.min(offset, #visible * ROW_H - height)))
+			return
+		end
+	end
+end
+
 function Options:ToggleCollapsed(id)
 	ns.db.collapsed[id] = not ns.db.collapsed[id] or nil
 	self:RefreshList()
@@ -99,7 +127,7 @@ function Options:CreateList()
 	local child = CreateFrame("Frame", nil, scroll)
 	child:SetSize(self.LIST_W - 36, 10)
 	scroll:SetScrollChild(child)
-	self.listChild = child
+	self.listScroll, self.listChild = scroll, child
 
 	self.dropLine = child:CreateTexture(nil, "OVERLAY")
 	self.dropLine:SetHeight(2)
@@ -119,8 +147,8 @@ function Options:CreateList()
 	newGroup = W.Button(frame, L["New group..."], half, function()
 		self:ClearEditFocus()
 		W.OpenMenu(newGroup, {
-			{ value = "dynamic", label = L["Dynamic group (arranges what it holds)"] },
-			{ value = "static", label = L["Static group (free positions)"] },
+			{ value = "dynamic", label = L["Dynamic group (row or grid)"] },
+			{ value = "static", label = L["Static group (place freely)"] },
 		}, nil, function(layout) self:NewGroup(layout) end)
 	end)
 	newGroup:SetPoint("LEFT", new, "RIGHT", 4, 0)
@@ -245,7 +273,7 @@ function Options:RefreshList()
 		row.nodeID = node.id
 		row.expand:ClearAllPoints()
 		row.expand:SetPoint("LEFT", entry.level * INDENT, 0)
-		local group = Tree:IsGroup(node)
+		local group = Tree:IsGroup(node) and #node.children > 0
 		row.expand:SetShown(group)
 		if group then
 			local state = ns.db.collapsed[node.id] and "Plus" or "Minus"

@@ -11,6 +11,7 @@ local MAX_UID_LENGTH = 32
 local PERSONAL = {
 	id = true, uid = true, revision = true, children = true, items = true,
 	enabled = true, disabledFor = true, x = true, y = true, scale = true,
+	point = true, relPoint = true, anchorFrame = true, anchorTo = true, anchorNode = true,
 }
 
 function Versions.IsUID(value)
@@ -45,11 +46,22 @@ function Versions:EnsureUIDs()
 	end)
 end
 
--- Clears permanent IDs in a detached subtree so it is added as something new.
-function Versions.StripUIDs(snapshot)
-	snapshot.uid = nil
-	for _, item in ipairs(snapshot.items or {}) do Versions.StripUIDs(item) end
-	return snapshot
+-- Gives detached subtrees new permanent IDs so they are added as something new. Node anchors between
+-- their nodes follow the new IDs.
+function Versions.RenewUIDs(snapshots)
+	local renamed, all = {}, {}
+	local function renew(node)
+		local uid = Versions.NewUID()
+		if node.uid then renamed[node.uid] = uid end
+		node.uid = uid
+		all[#all + 1] = node
+		for _, item in ipairs(node.items or {}) do renew(item) end
+	end
+	for _, snapshot in ipairs(snapshots) do renew(snapshot) end
+	for _, node in ipairs(all) do
+		if node.anchorNode and renamed[node.anchorNode] then node.anchorNode = renamed[node.anchorNode] end
+	end
+	return snapshots
 end
 
 local function hash(text)

@@ -445,3 +445,67 @@ function W.Slider(parent, label, minValue, maxValue, step, width, format, onChan
 	end)
 	return slider
 end
+
+local PICK_SKIP = { WorldFrame = true, UIParent = true }
+
+-- The nearest frame under the mouse that has a global name, leaving out this addon's own frames.
+function W.NamedFrameUnderMouse()
+	local focus
+	if GetMouseFoci then focus = GetMouseFoci()[1] elseif GetMouseFocus then focus = GetMouseFocus() end
+	while focus do
+		if focus.IsForbidden and focus:IsForbidden() then return nil end
+		local name = focus.GetName and focus:GetName()
+		if name and _G[name] == focus and not PICK_SKIP[name] and not name:find("^RemindMeWhen") then return focus, name end
+		focus = focus.GetParent and focus:GetParent()
+	end
+	return nil
+end
+
+-- Highlights the named frame under the mouse until a left-click picks it (onPick(name)) or a
+-- right-click cancels. Clicks still reach the frame underneath.
+function W.PickFrame(onPick)
+	local picker = W.picker
+	if not picker then
+		picker = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
+		picker:SetFrameStrata("TOOLTIP")
+		picker:SetBackdrop({ edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 2 })
+		picker:SetBackdropBorderColor(0.2, 0.9, 0.3, 1)
+		picker.label = picker:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+		picker.hint = UIParent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+		picker.hint:SetPoint("TOP", UIParent, "TOP", 0, -60)
+		picker.hint:SetText(L["Left-click a frame to anchor to it. Right-click to cancel."])
+		W.picker = picker
+	end
+	local released = false
+	local function finish(name)
+		picker:SetScript("OnUpdate", nil)
+		picker:Hide()
+		picker.hint:Hide()
+		if name then onPick(name) end
+	end
+	picker:SetScript("OnUpdate", function()
+		local left, right = IsMouseButtonDown("LeftButton"), IsMouseButtonDown("RightButton")
+		if not released then
+			if left or right then return end
+			released = true
+		end
+		local frame, name = W.NamedFrameUnderMouse()
+		if right then return finish(nil) end
+		if left then return finish(name) end
+		if frame then
+			picker:ClearAllPoints()
+			picker:SetAllPoints(frame)
+			picker.label:SetText(name)
+			picker.label:ClearAllPoints()
+			picker.label:SetPoint("BOTTOMLEFT", picker, "TOPLEFT", 0, 2)
+			picker:SetAlpha(1)
+		else
+			picker:SetAlpha(0)
+		end
+	end)
+	picker:ClearAllPoints()
+	picker:SetAllPoints(UIParent)
+	picker:SetAlpha(0)
+	picker.hint:Show()
+	picker:Show()
+end

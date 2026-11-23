@@ -74,6 +74,8 @@ function Options:Open()
 	local fit = math.min((UIParent:GetWidth() - 40) / WIDTH, (UIParent:GetHeight() - 40) / HEIGHT)
 	self.frame:SetScale(math.max(0.6, math.min(1, fit)))
 	self.frame:Show()
+	ns.Display.editEnded = nil
+	ns.Display.moving = nil
 	ns.Core:RequestUpdate()
 	self:Refresh()
 end
@@ -151,6 +153,12 @@ function Options:Create()
 	subtitle:SetPoint("LEFT", title, "RIGHT", 12, -1)
 	local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
 	close:SetPoint("TOPRIGHT", -2, -2)
+	self.moveButton = W.Button(frame, L["Move"], 80, function()
+		self:ClearEditFocus()
+		ns.Display:StartMoving()
+	end)
+	self.moveButton:SetPoint("RIGHT", close, "LEFT", -4, 0)
+	W.Tooltip(self.moveButton, L["Move"], L["Hides this window and shows everything so you can drag it into place. Right-click a reminder or group to configure it. Click Done or press Escape when you are finished."])
 
 	self.frame = frame
 	self:CreateList()
